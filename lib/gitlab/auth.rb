@@ -53,7 +53,7 @@ module Gitlab
       provider, uid = auth.provider, auth.uid
       email = auth.info.email.downcase unless auth.info.email.nil?
 
-      if @user = User.find_by_provider_and_extern_uid(provider, uid)
+      if @user = find_by_extern_uid(auth)
         @user
       elsif @user = User.find_by_email(email)
         @user.update_attributes(extern_uid: uid, provider: provider)
@@ -87,6 +87,30 @@ module Gitlab
 
     def ldap_conf
       @ldap_conf ||= Gitlab.config.ldap
+    end
+
+    private
+
+    def find_by_extern_uid(auth)
+      if user = User.find_by_provider_and_extern_uid(auth.provider, auth.uid)
+        user
+      else
+        find_by_provider_and_symbolic_uid(auth)
+      end
+    end
+
+    def find_by_provider_and_symbolic_uid(auth)
+      provider, uid = auth.provider, auth.uid
+      symbolic_uid = case provider
+      when :twitter
+        auth.extra.access_token.params[:screen_name] rescue nil
+      else
+        nil
+      end
+      if symbolic_uid
+        user = User.public_send(provider, symbolic_uid) rescue nil
+        user.tap { |u| u.update_attributes(extern_uid: auth.uid, provider: provider) } if user
+      end
     end
   end
 end
